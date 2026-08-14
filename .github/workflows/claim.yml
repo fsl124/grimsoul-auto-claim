@@ -1,0 +1,29 @@
+name: Grim Soul Daily Claim
+
+on:
+  schedule:
+    # 每天 UTC 时间 01:00 运行（北京时间 09:00）
+    - cron: '0 1 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          playwright install chromium --with-deps
+
+      - name: Run claim script
+        env:
+          GRIMSOUL_ACCOUNT_ID: ${{ secrets.GRIMSOUL_ACCOUNT_ID }}
+        run: python claim.py
