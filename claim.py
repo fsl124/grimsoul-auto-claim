@@ -23,75 +23,131 @@ def log(msg):
     print(f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] {msg}")
 
 def handle_cookie_banner(page):
-    """处理 Cookie 同意弹窗，优先点击 Allow All 或 Decline All"""
-    # 优先精确匹配弹窗按钮
-    primary_texts = [
-        "Allow All", "Allow all", "允许所有", "全部允许",
-        "Decline All", "Decline all", "拒绝所有", "全部拒绝"
+    """
+    精准处理 Termly Cookie 弹窗：
+    1. 先尝试在弹窗容器内查找 'Allow All' 或 'Decline All' 按钮
+    2. 如果没找到，再在整个页面中查找精确文本的按钮（避免误点链接）
+    """
+    # 弹窗常见容器选择器
+    dialog_selectors = [
+        'div[class*="termly"]',
+        'div[class*="cookie"]',
+        'div[class*="consent"]',
+        'div[id*="termly"]',
+        'div[id*="cookie"]',
+        'div[id*="consent"]',
+        '[role="dialog"]',
+        '.modal',
+        '.popup',
+        '.dialog'
     ]
-    secondary_texts = [
-        "Accept All Cookies", "Accept all", "Accept", "I agree", "Agree",
-        "同意", "接受", "允许"
-    ]
-
-    # 首先尝试点击弹窗中的主要按钮
-    for text in primary_texts:
+    
+    # 优先尝试的按钮文字（按优先级）
+    primary_buttons = ["Allow All", "允许所有", "全部允许", "Decline All", "拒绝所有", "全部拒绝"]
+    secondary_buttons = ["Accept All", "Accept", "同意", "接受", "允许"]
+    
+    # 查找弹窗容器
+    container = None
+    for sel in dialog_selectors:
         try:
-            # 查找按钮元素
-            for selector in ["button", "a", "[role=button]"]:
-                locs = page.locator(selector, has_text=text)
-                count = locs.count()
-                for i in range(count):
-                    loc = locs.nth(i)
-                    if loc.is_visible() and loc.is_enabled():
-                        loc.click(timeout=2000)
-                        log(f"已点击 Cookie 按钮：{text}")
-                        page.wait_for_timeout(2000)
-                        return True
+            loc = page.locator(sel).first
+            if loc.is_visible():
+                container = loc
+                log(f"找到 Cookie 弹窗容器：{sel}")
+                break
         except:
-            pass
-
-    # 如果没找到，尝试通用文本
-    for text in secondary_texts:
-        try:
-            for selector in ["button", "a", "[role=button]"]:
-                locs = page.locator(selector, has_text=text)
-                count = locs.count()
-                for i in range(count):
-                    loc = locs.nth(i)
-                    if loc.is_visible() and loc.is_enabled():
-                        loc.click(timeout=2000)
-                        log(f"已点击 Cookie 按钮：{text}")
-                        page.wait_for_timeout(2000)
+            continue
+    
+    # 如果找到容器，在容器内查找按钮
+    if container:
+        for text in primary_buttons:
+            try:
+                btn = container.locator(f'button:has-text("{text}")').first
+                if btn.is_visible() and btn.is_enabled():
+                    btn.click(timeout=2000)
+                    log(f"在弹窗内点击按钮：{text}")
+                    page.wait_for_timeout(2000)
+                    # 检查弹窗是否消失
+                    if not container.is_visible():
+                        log("Cookie 弹窗已关闭")
                         return True
-        except:
-            pass
-
-    # 最后尝试直接通过文本点击
-    for text in primary_texts + secondary_texts:
+                    else:
+                        log("弹窗未关闭，尝试其他按钮")
+            except:
+                continue
+        # 如果主要按钮没找到，尝试次要按钮
+        for text in secondary_buttons:
+            try:
+                btn = container.locator(f'button:has-text("{text}")').first
+                if btn.is_visible() and btn.is_enabled():
+                    btn.click(timeout=2000)
+                    log(f"在弹窗内点击按钮：{text}")
+                    page.wait_for_timeout(2000)
+                    if not container.is_visible():
+                        log("Cookie 弹窗已关闭")
+                        return True
+            except:
+                continue
+    
+    # 如果容器内没找到或容器不存在，尝试全局查找精确按钮
+    # 只查找 button 标签，避免误点链接
+    for text in primary_buttons + secondary_buttons:
         try:
-            loc = page.get_by_text(text, exact=False).first
-            if loc.is_visible() and loc.is_enabled():
-                loc.click(timeout=2000)
-                log(f"已通过文本点击 {text}")
+            btn = page.locator(f'button:has-text("{text}")').first
+            if btn.is_visible() and btn.is_enabled():
+                btn.click(timeout=2000)
+                log(f"全局点击按钮：{text}")
                 page.wait_for_timeout(2000)
                 return True
         except:
+            continue
+    
+    # 最后尝试通过文本点击（排除链接）
+    for text in primary_buttons:
+        try:
+            # 使用更精确的匹配：只匹配文本节点
+            loc = page.get_by_text(text, exact=True).first
+            if loc.is_visible() and loc.is_enabled():
+                tag = loc.evaluate("el => el.tagName.toLowerCase()")
+                if tag in ["button", "a", "div", "span"]:
+                    loc.click(timeout=2000)
+                    log(f"通过精确文本点击：{text}")
+                    page.wait_for_timeout(2000)
+                    return True
+        except:
             pass
+    
+    log("未找到可点击的 Cookie 按钮")
     return False
 
 def has_countdown(page):
-    """检测页面是否存在倒计时格式（如 12:34:56 或 1:23:45）"""
+    """
+    检测页面是否存在倒计时格式（如 12:34:56）
+    使用 page.evaluate 在浏览器环境中安全执行
+    """
     try:
-        # 查找所有可见元素，检查其文本是否匹配倒计时格式
-        elements = page.locator('body *:visible')
-        count = elements.count()
-        for i in range(count):
-            el = elements.nth(i)
-            text = el.inner_text().strip()
-            if re.match(r'^\d{1,2}:\d{2}:\d{2}$', text):
-                log(f"检测到倒计时文本：'{text}'")
-                return True
+        # 在浏览器中查找所有可见元素，检查其文本是否精确匹配倒计时格式
+        result = page.evaluate("""
+            () => {
+                const regex = /^\\d{1,2}:\\d{2}:\\d{2}$/;
+                const all = document.querySelectorAll('body *');
+                for (const el of all) {
+                    if (el instanceof HTMLElement) {
+                        const style = window.getComputedStyle(el);
+                        if (style.display !== 'none' && style.visibility !== 'hidden' && el.offsetWidth > 0) {
+                            const text = el.innerText.trim();
+                            if (text && regex.test(text)) {
+                                return text;
+                            }
+                        }
+                    }
+                }
+                return null;
+            }
+        """)
+        if result:
+            log(f"检测到倒计时文本：'{result}'")
+            return True
         return False
     except Exception as e:
         log(f"倒计时检测出错：{e}")
@@ -278,16 +334,12 @@ def main():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale="zh-CN")
 
-        # 注入脚本：设置 localStorage 避免 Cookie 弹窗
+        # 尝试注入 localStorage（虽然可能无效，但保留作为额外保障）
         context.add_init_script(
             """
-            localStorage.setItem('TERMLY_COOKIE_CONSENT', JSON.stringify({
-                essential: true,
-                functional: true,
-                performance: true,
-                advertising: true,
-                timestamp: Date.now()
-            }));
+            try {
+                localStorage.setItem('TERMLY_COOKIE_CONSENT', '{"essential":true,"functional":true,"performance":true,"advertising":true}');
+            } catch(e) {}
             """
         )
         page = context.new_page()
@@ -302,7 +354,14 @@ def main():
         log("访问每日奖励页面")
         page.goto(DAILY_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(5000)
-        handle_cookie_banner(page)  # 备用：如果弹窗仍然出现
+        handle_cookie_banner(page)  # 再次处理，确保关闭弹窗
+
+        # 输出当前页面 body 文本前 200 字符，帮助诊断
+        try:
+            body_preview = page.inner_text("body")[:200]
+            log(f"页面文本预览：{body_preview}")
+        except:
+            pass
 
         # 检测跳过条件
         has_cd = has_countdown(page)
@@ -328,6 +387,12 @@ def main():
         page.goto(STORE_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(5000)
         handle_cookie_banner(page)
+
+        try:
+            body_preview = page.inner_text("body")[:200]
+            log(f"页面文本预览：{body_preview}")
+        except:
+            pass
 
         has_cd = has_countdown(page)
         has_skip = page_has_skip_text(page)
