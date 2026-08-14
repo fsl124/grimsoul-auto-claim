@@ -22,10 +22,12 @@ def log(msg):
     print(f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] {msg}")
 
 def handle_cookie_banner(page):
-    """处理 Cookie 同意弹窗，点击接受按钮"""
+    """处理 Cookie 同意弹窗，点击允许或拒绝按钮"""
+    # 优先点击“允许所有”或“Accept”，其次“拒绝所有”或“Decline”
     cookie_button_texts = [
-        "Accept", "Accept all", "Accept All Cookies", "I agree", "Agree",
-        "同意", "接受", "允许", "我知道了", "确定"
+        "Allow All", "Allow all", "Accept All Cookies", "Accept all", "Accept", "I agree", "Agree",
+        "允许所有", "全部允许", "接受全部", "同意", "接受", "允许",
+        "Decline All", "Decline all", "拒绝所有", "全部拒绝", "拒绝"
     ]
     for text in cookie_button_texts:
         try:
@@ -37,21 +39,22 @@ def handle_cookie_banner(page):
                     loc = locs.nth(i)
                     if loc.is_visible() and loc.is_enabled():
                         loc.click(timeout=2000)
-                        log(f"已点击 Cookie 同意按钮：{text}")
+                        log(f"已点击 Cookie 按钮：{text}")
                         page.wait_for_timeout(2000)
                         return True
         except:
             pass
     # 如果没找到，尝试通过文本直接点击
-    try:
-        loc = page.get_by_text("Accept", exact=False).first
-        if loc.is_visible() and loc.is_enabled():
-            loc.click(timeout=2000)
-            log("已通过文本点击 Accept")
-            page.wait_for_timeout(2000)
-            return True
-    except:
-        pass
+    for text in ["Allow All", "Accept", "允许所有", "同意", "Decline All", "拒绝所有"]:
+        try:
+            loc = page.get_by_text(text, exact=False).first
+            if loc.is_visible() and loc.is_enabled():
+                loc.click(timeout=2000)
+                log(f"已通过文本点击 {text}")
+                page.wait_for_timeout(2000)
+                return True
+        except:
+            pass
     return False
 
 def has_countdown(page):
