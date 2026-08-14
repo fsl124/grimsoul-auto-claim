@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import datetime
 from playwright.sync_api import sync_playwright
 
@@ -22,16 +23,21 @@ def log(msg):
     print(f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] {msg}")
 
 def handle_cookie_banner(page):
-    """处理 Cookie 同意弹窗，点击允许或拒绝按钮"""
-    # 优先点击“允许所有”或“Accept”，其次“拒绝所有”或“Decline”
-    cookie_button_texts = [
-        "Allow All", "Allow all", "Accept All Cookies", "Accept all", "Accept", "I agree", "Agree",
-        "允许所有", "全部允许", "接受全部", "同意", "接受", "允许",
-        "Decline All", "Decline all", "拒绝所有", "全部拒绝", "拒绝"
+    """处理 Cookie 同意弹窗，优先点击 Allow All 或 Decline All"""
+    # 优先精确匹配弹窗按钮
+    primary_texts = [
+        "Allow All", "Allow all", "允许所有", "全部允许",
+        "Decline All", "Decline all", "拒绝所有", "全部拒绝"
     ]
-    for text in cookie_button_texts:
+    secondary_texts = [
+        "Accept All Cookies", "Accept all", "Accept", "I agree", "Agree",
+        "同意", "接受", "允许"
+    ]
+
+    # 首先尝试点击弹窗中的主要按钮
+    for text in primary_texts:
         try:
-            # 优先查找按钮元素
+            # 查找按钮元素
             for selector in ["button", "a", "[role=button]"]:
                 locs = page.locator(selector, has_text=text)
                 count = locs.count()
@@ -44,8 +50,25 @@ def handle_cookie_banner(page):
                         return True
         except:
             pass
-    # 如果没找到，尝试通过文本直接点击
-    for text in ["Allow All", "Accept", "允许所有", "同意", "Decline All", "拒绝所有"]:
+
+    # 如果没找到，尝试通用文本
+    for text in secondary_texts:
+        try:
+            for selector in ["button", "a", "[role=button]"]:
+                locs = page.locator(selector, has_text=text)
+                count = locs.count()
+                for i in range(count):
+                    loc = locs.nth(i)
+                    if loc.is_visible() and loc.is_enabled():
+                        loc.click(timeout=2000)
+                        log(f"已点击 Cookie 按钮：{text}")
+                        page.wait_for_timeout(2000)
+                        return True
+        except:
+            pass
+
+    # 最后尝试直接通过文本点击
+    for text in primary_texts + secondary_texts:
         try:
             loc = page.get_by_text(text, exact=False).first
             if loc.is_visible() and loc.is_enabled():
@@ -60,21 +83,29 @@ def handle_cookie_banner(page):
 def has_countdown(page):
     """检测页面是否存在倒计时格式（如 12:34:56 或 1:23:45）"""
     try:
-        countdown_elements = page.locator('text=/\\d{1,2}:\\d{2}:\\d{2}/')
-        if countdown_elements.count() > 0:
-            for i in range(countdown_elements.count()):
-                el = countdown_elements.nth(i)
-                if el.is_visible():
-                    return True
+        # 查找所有可见元素，检查其文本是否匹配倒计时格式
+        elements = page.locator('body *:visible')
+        count = elements.count()
+        for i in range(count):
+            el = elements.nth(i)
+            text = el.inner_text().strip()
+            if re.match(r'^\d{1,2}:\d{2}:\d{2}$', text):
+                log(f"检测到倒计时文本：'{text}'")
+                return True
         return False
-    except:
+    except Exception as e:
+        log(f"倒计时检测出错：{e}")
         return False
 
 def page_has_skip_text(page):
     """检测页面是否包含跳过文本"""
     try:
         body = page.inner_text("body").lower()
-        return any(t.lower() in body for t in SKIP_TEXTS)
+        for t in SKIP_TEXTS:
+            if t.lower() in body:
+                log(f"检测到跳过文本：'{t}'")
+                return True
+        return False
     except:
         return False
 
@@ -246,6 +277,19 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale="zh-CN")
+
+        # 注入脚本：设置 localStorage 避免 Cookie 弹窗
+        context.add_init_script(
+            """
+            localStorage.setItem('TERMLY_COOKIE_CONSENT', JSON.stringify({
+                essential: true,
+                functional: true,
+                performance: true,
+                advertising: true,
+                timestamp: Date.now()
+            }));
+            """
+        )
         page = context.new_page()
 
         # 登录
@@ -258,9 +302,13 @@ def main():
         log("访问每日奖励页面")
         page.goto(DAILY_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(5000)
-        handle_cookie_banner(page)  # 再次处理，以防页面跳转后再次出现
+        handle_cookie_banner(page)  # 备用：如果弹窗仍然出现
 
-        if has_countdown(page) or page_has_skip_text(page):
+        # 检测跳过条件
+        has_cd = has_countdown(page)
+        has_skip = page_has_skip_text(page)
+        log(f"倒计时检测结果：{has_cd}，跳过文本检测结果：{has_skip}")
+        if has_cd or has_skip:
             log("每日奖励：检测到倒计时或已领取文本，跳过")
         else:
             if click_claim_button(page, DAILY_TEXTS):
@@ -281,7 +329,10 @@ def main():
         page.wait_for_timeout(5000)
         handle_cookie_banner(page)
 
-        if has_countdown(page) or page_has_skip_text(page):
+        has_cd = has_countdown(page)
+        has_skip = page_has_skip_text(page)
+        log(f"倒计时检测结果：{has_cd}，跳过文本检测结果：{has_skip}")
+        if has_cd or has_skip:
             log("商店：检测到倒计时或已领取文本，跳过")
         else:
             if click_claim_button(page, STORE_TEXTS):
