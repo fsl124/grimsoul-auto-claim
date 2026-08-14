@@ -2,19 +2,18 @@ name: Grim Soul Daily Claim
 
 on:
   schedule:
-    # 每天 UTC 时间 01:00 运行（北京时间 09:00）
-    - cron: '0 1 * * *'
-  workflow_dispatch:  # 允许手动触发
+    - cron: '30 0 * * *'
+  workflow_dispatch:
 
 jobs:
   claim:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
