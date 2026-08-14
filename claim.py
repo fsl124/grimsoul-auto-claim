@@ -8,13 +8,9 @@ ACCOUNT_ID = os.environ.get("GRIMSOUL_ACCOUNT_ID")
 DAILY_URL = "https://grimsoul.com/zh/daily-rewards"
 STORE_URL = "https://grimsoul.com/zh/store"
 
-# 每日奖励按钮文字
-DAILY_TEXTS = ["领取奖励", "领取", "领奖", "Claim reward", "Claim"]
-# 商店免费硬币按钮文字（用于匹配按钮，但实际判断是否可领取要看按钮文本是否包含“领取”）
-STORE_FREE_TEXTS = ["10塔勒", "塔勒", "免费硬币", "领取免费硬币", "领取免费", "免费", "Free coins", "Claim free", "Claim"]
+# 每日奖励：只需要查找“领取”按钮
+DAILY_CLAIM_TEXT = "领取"
 
-# 跳过文本（仅用于每日奖励页面）
-SKIP_TEXTS = ["已领取", "已签到", "明日再来", "明天再来", "Claimed", "Come back tomorrow", "Already claimed"]
 # 弹窗成功文本
 SUCCESS_TEXTS = ["恭喜", "获得", "成功", "领取成功", "奖励", "You got", "Received", "Success", "Congratulations"]
 # 弹窗已领取文本
@@ -96,7 +92,7 @@ def handle_cookie_banner(page):
     return False
 
 def has_countdown(page):
-    """检测页面是否存在倒计时格式（仅用于每日奖励）"""
+    """检测页面是否存在倒计时格式（如 12:34:56）"""
     try:
         result = page.evaluate("""
             () => {
@@ -122,126 +118,36 @@ def has_countdown(page):
         log(f"倒计时检测出错：{e}")
         return False
 
-def page_has_skip_text(page):
-    """检测页面是否包含跳过文本（仅用于每日奖励）"""
-    try:
-        body = page.inner_text("body").lower()
-        for t in SKIP_TEXTS:
-            if t.lower() in body:
-                log(f"检测到跳过文本：'{t}'")
-                return True
-        return False
-    except:
-        return False
-
 def get_visible_text(page, selector='body'):
     try:
         return page.inner_text(selector)
     except:
         return ""
 
-def click_claim_button(page, texts):
-    """通用按钮点击，用于每日奖励"""
-    for text in texts:
-        for selector in ["button", "a", "[role=button]", "div", "span"]:
-            try:
-                locs = page.locator(selector, has_text=text)
-                count = locs.count()
-                for i in range(count):
-                    loc = locs.nth(i)
-                    if loc.is_visible() and loc.is_enabled():
-                        tag = loc.evaluate("el => el.tagName.toLowerCase()")
-                        cls = loc.evaluate("el => el.className || ''")
-                        text_content = (loc.inner_text() or '').strip()
-                        if tag in ["button", "a"] or "btn" in cls.lower() or "claim" in cls.lower() or "button" in cls.lower():
-                            loc.click(timeout=3000)
-                            log(f"点击成功：{text}（标签 {tag}，class: {cls}）")
-                            return True
-                        elif "领取" in text_content or "claim" in text_content.lower():
-                            loc.click(timeout=3000)
-                            log(f"点击成功：{text}（标签 {tag}）")
-                            return True
-            except:
-                continue
+def click_button_with_text(page, text):
+    """查找包含指定文本的可点击按钮并点击"""
+    for selector in ["button", "a", "[role=button]"]:
         try:
-            loc = page.get_by_text(text, exact=False).first
-            if loc.is_visible() and loc.is_enabled():
-                loc.click(timeout=3000)
-                log(f"点击成功（文本兜底）：{text}")
-                return True
-        except:
-            pass
-    return False
-
-def click_store_free_button(page):
-    """
-    商店免费硬币按钮点击。
-    查找包含“10塔勒”或“免费”等字样的按钮，并判断该按钮文本是否包含“领取”。
-    如果包含，则点击；否则跳过。
-    """
-    # 候选按钮：文本包含免费相关关键词
-    candidates = []
-    for text in STORE_FREE_TEXTS:
-        try:
-            # 查找所有包含该文本的 button 元素
-            locs = page.locator(f'button:has-text("{text}")')
+            locs = page.locator(f'{selector}:has-text("{text}")')
             count = locs.count()
             for i in range(count):
                 loc = locs.nth(i)
                 if loc.is_visible() and loc.is_enabled():
-                    candidates.append(loc)
-        except:
-            pass
-        # 也尝试查找 a 或 role=button
-        for selector in ['a', '[role=button]']:
-            try:
-                locs = page.locator(f'{selector}:has-text("{text}")')
-                count = locs.count()
-                for i in range(count):
-                    loc = locs.nth(i)
-                    if loc.is_visible() and loc.is_enabled():
-                        candidates.append(loc)
-            except:
-                pass
-
-    # 去重（根据元素句柄？这里简单处理）
-    unique_candidates = []
-    for loc in candidates:
-        try:
-            # 通过 evaluate 获取一个唯一标识，这里简单使用文本内容
-            info = loc.evaluate("el => ({tag: el.tagName, text: el.innerText})")
-            if info not in unique_candidates:
-                unique_candidates.append(info)
+                    loc.click(timeout=3000)
+                    log(f"点击了包含“{text}”的按钮（选择器 {selector}）")
+                    return True
         except:
             continue
-    # 由于无法直接比较 loc 对象，我们直接遍历候选并尝试点击
-    # 这里采用另一种方式：直接查找同时包含“领取”和免费关键词的按钮
-    # 更简洁：查找文本同时匹配免费关键词和“领取”的按钮
-    claim_keywords = ["领取", "Claim"]
-    for keyword in claim_keywords:
-        for free_text in STORE_FREE_TEXTS:
-            # 使用 CSS :has-text 组合匹配
-            try:
-                btn = page.locator(f'button:has-text("{free_text}"):has-text("{keyword}")').first
-                if btn.is_visible() and btn.is_enabled():
-                    btn.click(timeout=3000)
-                    log(f"商店免费按钮点击成功：文本包含 '{free_text}' 和 '{keyword}'")
-                    return True
-            except:
-                continue
-            # 也尝试 a 或 role=button
-            for selector in ['a', '[role=button]']:
-                try:
-                    btn = page.locator(f'{selector}:has-text("{free_text}"):has-text("{keyword}")').first
-                    if btn.is_visible() and btn.is_enabled():
-                        btn.click(timeout=3000)
-                        log(f"商店免费按钮点击成功：文本包含 '{free_text}' 和 '{keyword}'")
-                        return True
-                except:
-                    continue
-
-    # 如果找不到同时包含“领取”的按钮，输出提示
-    log("未找到同时包含免费关键词和“领取”的可点击按钮，可能已领取或未开放")
+    # 兜底：通过文本直接点击
+    try:
+        loc = page.get_by_text(text, exact=False).first
+        if loc.is_visible() and loc.is_enabled():
+            loc.click(timeout=3000)
+            log(f"通过文本点击了“{text}”")
+            return True
+    except:
+        pass
+    log(f"未找到包含“{text}”的可点击按钮")
     return False
 
 def wait_and_check_popup(page, timeout=8000):
@@ -361,21 +267,13 @@ def main():
         page.wait_for_timeout(3000)
         handle_cookie_banner(page)
 
-        try:
-            body_preview = page.inner_text("body")[:200]
-            log(f"页面文本预览：{body_preview}")
-        except:
-            pass
-
-        # 每日奖励仍使用倒计时和跳过文本检测
-        has_cd = has_countdown(page)
-        has_skip = page_has_skip_text(page)
-        log(f"倒计时检测结果：{has_cd}，跳过文本检测结果：{has_skip}")
-        if has_cd or has_skip:
-            log("每日奖励：检测到倒计时或已领取文本，跳过")
+        # 只检测倒计时
+        if has_countdown(page):
+            log("每日奖励：检测到倒计时，跳过")
         else:
-            if click_claim_button(page, DAILY_TEXTS):
-                log("每日奖励：已点击领取按钮，等待弹窗...")
+            log("每日奖励：无倒计时，尝试点击“领取”按钮")
+            if click_button_with_text(page, DAILY_CLAIM_TEXT):
+                log("每日奖励：已点击“领取”按钮，等待弹窗...")
                 result = wait_and_check_popup(page)
                 if result == 'success':
                     log("每日奖励：领取成功！")
@@ -384,7 +282,14 @@ def main():
                 else:
                     log("每日奖励：弹窗内容未知，请手动检查")
             else:
-                log("每日奖励：未找到可点击的领取按钮")
+                log("每日奖励：未找到“领取”按钮")
+
+        # 每日奖励截图
+        try:
+            page.screenshot(path="/tmp/daily_rewards.png")
+            log("已保存每日奖励截图：/tmp/daily_rewards.png")
+        except:
+            log("每日奖励截图失败")
 
         # ========== 商店免费硬币页面 ==========
         log("访问商店页面")
@@ -392,31 +297,31 @@ def main():
         page.wait_for_timeout(3000)
         handle_cookie_banner(page)
 
-        try:
-            body_preview = page.inner_text("body")[:200]
-            log(f"页面文本预览：{body_preview}")
-        except:
-            pass
-
-        # 商店不再使用全页面倒计时/跳过检测，直接尝试点击免费按钮
-        if click_store_free_button(page):
-            log("商店：已点击免费硬币按钮，等待弹窗...")
-            result = wait_and_check_popup(page)
-            if result == 'success':
-                log("商店：免费硬币领取成功！")
-            elif result == 'already':
-                log("商店：今天已领取过，无需重复操作")
-            else:
-                log("商店：弹窗内容未知，请手动检查")
+        # 商店逻辑：检查是否有“已领取”文本，没有则点击“领取”按钮
+        body_text = get_visible_text(page).lower()
+        store_has_claimed = any(t.lower() in body_text for t in ALREADY_TEXTS)
+        if store_has_claimed:
+            log("商店：检测到已领取文本，跳过")
         else:
-            log("商店：未找到可领取的免费硬币按钮")
+            log("商店：未检测到已领取文本，尝试点击“领取”按钮")
+            if click_button_with_text(page, "领取"):
+                log("商店：已点击“领取”按钮，等待弹窗...")
+                result = wait_and_check_popup(page)
+                if result == 'success':
+                    log("商店：免费硬币领取成功！")
+                elif result == 'already':
+                    log("商店：今天已领取过，无需重复操作")
+                else:
+                    log("商店：弹窗内容未知，请手动检查")
+            else:
+                log("商店：未找到可点击的“领取”按钮")
 
-        # 截图
+        # 商店截图
         try:
-            page.screenshot(path="/tmp/grimsoul_result.png")
-            log("已保存截图到 /tmp/grimsoul_result.png")
+            page.screenshot(path="/tmp/store.png")
+            log("已保存商店截图：/tmp/store.png")
         except:
-            pass
+            log("商店截图失败")
 
         browser.close()
 
