@@ -8,8 +8,11 @@ ACCOUNT_ID = os.environ.get("GRIMSOUL_ACCOUNT_ID")
 DAILY_URL = "https://grimsoul.com/zh/daily-rewards"
 STORE_URL = "https://grimsoul.com/zh/store"
 
-# 每日奖励：只需要查找“领取”按钮
+# 每日奖励按钮文字
 DAILY_CLAIM_TEXT = "领取"
+
+# 商店免费按钮文字
+STORE_FREE_TEXT = "免费"
 
 # 弹窗成功文本
 SUCCESS_TEXTS = ["恭喜", "获得", "成功", "领取成功", "奖励", "You got", "Received", "Success", "Congratulations"]
@@ -267,7 +270,6 @@ def main():
         page.wait_for_timeout(3000)
         handle_cookie_banner(page)
 
-        # 只检测倒计时
         if has_countdown(page):
             log("每日奖励：检测到倒计时，跳过")
         else:
@@ -297,15 +299,15 @@ def main():
         page.wait_for_timeout(3000)
         handle_cookie_banner(page)
 
-        # 商店逻辑：检查是否有“已领取”文本，没有则点击“领取”按钮
+        # 商店逻辑：检查是否有“已领取”文本，没有则点击“免费”按钮
         body_text = get_visible_text(page).lower()
         store_has_claimed = any(t.lower() in body_text for t in ALREADY_TEXTS)
         if store_has_claimed:
             log("商店：检测到已领取文本，跳过")
         else:
-            log("商店：未检测到已领取文本，尝试点击“领取”按钮")
-            if click_button_with_text(page, "领取"):
-                log("商店：已点击“领取”按钮，等待弹窗...")
+            log("商店：未检测到已领取文本，尝试点击“免费”按钮")
+            if click_button_with_text(page, STORE_FREE_TEXT):
+                log("商店：已点击“免费”按钮，等待弹窗...")
                 result = wait_and_check_popup(page)
                 if result == 'success':
                     log("商店：免费硬币领取成功！")
@@ -314,7 +316,7 @@ def main():
                 else:
                     log("商店：弹窗内容未知，请手动检查")
             else:
-                log("商店：未找到可点击的“领取”按钮")
+                log("商店：未找到可点击的“免费”按钮")
 
         # 商店截图
         try:
