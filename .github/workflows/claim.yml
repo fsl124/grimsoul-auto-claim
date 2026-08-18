@@ -2,9 +2,8 @@ name: Grim Soul Daily Claim
 
 on:
   schedule:
-    # 每天 UTC 00:00 运行，对应北京时间 08:00
     - cron: '0 0 * * *'
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   claim:
@@ -28,6 +27,8 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
           pip install --no-cache-dir playwright
           playwright install chromium
 
@@ -38,10 +39,10 @@ jobs:
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
-        if: always()   # 即使前面步骤失败也上传截图，方便调试
+        if: always()
         with:
           name: grimsoul-screenshots
           path: |
             /tmp/daily_rewards.png
             /tmp/store.png
-          retention-days: 7   # 截图保留 7 天
+          retention-days: 7
