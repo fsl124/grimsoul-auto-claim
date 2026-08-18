@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --no-cache-dir playwright
-          playwright install chromium --with-deps
+          playwright install chromium
 
       - name: Run claim script
         env:
